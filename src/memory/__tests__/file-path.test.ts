@@ -91,15 +91,18 @@ describe('ensureMemoryFilePath', () => {
       expect(result).toBe(os.homedir());
     });
 
-    it('should not expand "~" that is not at the start of the path', async () => {
-      const relativePath = path.join('memories', '~backup.jsonl');
-      process.env.MEMORY_FILE_PATH = relativePath;
+    it('should not expand a "~" that is not followed by a path separator', async () => {
+      process.env.MEMORY_FILE_PATH = '~backup.jsonl';
 
       const result = await ensureMemoryFilePath();
 
-      // The literal "~" is preserved; the value is resolved as a relative path.
-      expect(result).not.toContain(os.homedir());
+      // "~backup.jsonl" is a filename, not a home reference: the tilde is
+      // preserved and the value is resolved as a relative path. Asserting on
+      // os.homedir() membership directly is unsafe because the package
+      // directory can itself live under the home directory (e.g. /home/runner
+      // on CI), so compare against the expanded path that must NOT be produced.
       expect(result).toContain('~backup.jsonl');
+      expect(result).not.toBe(path.join(os.homedir(), 'backup.jsonl'));
       expect(path.isAbsolute(result)).toBe(true);
     });
   });
