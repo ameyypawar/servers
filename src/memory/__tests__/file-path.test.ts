@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { promises as fs } from 'fs';
 import path from 'path';
+import os from 'os';
 import { fileURLToPath } from 'url';
 import { ensureMemoryFilePath, defaultMemoryPath } from '../index.js';
 
@@ -71,6 +72,35 @@ describe('ensureMemoryFilePath', () => {
       } else {
         expect(path.isAbsolute(result)).toBe(true);
       }
+    });
+
+    it('should expand a leading "~/" to the home directory', async () => {
+      process.env.MEMORY_FILE_PATH = path.join('~', 'custom-memory.jsonl');
+
+      const result = await ensureMemoryFilePath();
+
+      expect(result).toBe(path.join(os.homedir(), 'custom-memory.jsonl'));
+      expect(path.isAbsolute(result)).toBe(true);
+    });
+
+    it('should expand a bare "~" to the home directory', async () => {
+      process.env.MEMORY_FILE_PATH = '~';
+
+      const result = await ensureMemoryFilePath();
+
+      expect(result).toBe(os.homedir());
+    });
+
+    it('should not expand "~" that is not at the start of the path', async () => {
+      const relativePath = path.join('memories', '~backup.jsonl');
+      process.env.MEMORY_FILE_PATH = relativePath;
+
+      const result = await ensureMemoryFilePath();
+
+      // The literal "~" is preserved; the value is resolved as a relative path.
+      expect(result).not.toContain(os.homedir());
+      expect(result).toContain('~backup.jsonl');
+      expect(path.isAbsolute(result)).toBe(true);
     });
   });
 
