@@ -3,7 +3,7 @@ import { promises as fs } from 'fs';
 import path from 'path';
 import os from 'os';
 import { fileURLToPath } from 'url';
-import { ensureMemoryFilePath, defaultMemoryPath } from '../index.js';
+import { ensureMemoryFilePath, defaultMemoryPath, expandHome } from '../index.js';
 
 describe('ensureMemoryFilePath', () => {
   const testDir = path.dirname(fileURLToPath(import.meta.url));
@@ -83,27 +83,18 @@ describe('ensureMemoryFilePath', () => {
       expect(path.isAbsolute(result)).toBe(true);
     });
 
-    it('should expand a bare "~" to the home directory', async () => {
-      process.env.MEMORY_FILE_PATH = '~';
-
-      const result = await ensureMemoryFilePath();
-
-      expect(result).toBe(os.homedir());
-    });
-
-    it('should not expand a "~" that is not followed by a path separator', async () => {
+    it('should resolve a leading "~" with no separator against the package directory, not home', async () => {
       process.env.MEMORY_FILE_PATH = '~backup.jsonl';
 
       const result = await ensureMemoryFilePath();
 
-      // "~backup.jsonl" is a filename, not a home reference: the tilde is
-      // preserved and the value is resolved as a relative path. Asserting on
-      // os.homedir() membership directly is unsafe because the package
-      // directory can itself live under the home directory (e.g. /home/runner
-      // on CI), so compare against the expanded path that must NOT be produced.
-      expect(result).toContain('~backup.jsonl');
-      expect(result).not.toBe(path.join(os.homedir(), 'backup.jsonl'));
-      expect(path.isAbsolute(result)).toBe(true);
+      // "~backup.jsonl" has no separator after "~", so it is not a home
+      // reference. It must be treated as a relative path and resolved against
+      // the package directory (where index.ts lives, one level up from
+      // __tests__) rather than expanded to the home directory. Pinning the
+      // exact base dir distinguishes correct fallthrough from a home-rooted bug.
+      const packageDir = path.join(testDir, '..');
+      expect(result).toBe(path.join(packageDir, '~backup.jsonl'));
     });
   });
 
@@ -185,5 +176,39 @@ describe('ensureMemoryFilePath', () => {
     it('should be an absolute path', () => {
       expect(path.isAbsolute(defaultMemoryPath)).toBe(true);
     });
+  });
+});
+
+describe('expandHome', () => {
+  it('expands a bare "~" to the home directory', () => {
+    expect(expandHome('~')).toBe(os.homedir());
+  });
+
+  it('expands a leading "~/" segment to the home directory', () => {
+    expect(expandHome('~/notes/memory.jsonl')).toBe(
+      path.join(os.homedir(), 'notes/memory.jsonl')
+    );
+  });
+
+  it('expands a leading backslash (Windows-style) tilde segment to the home directory', () => {
+    // Use an explicit backslash literal so this branch is exercised even on the
+    // Linux-only CI runner (where path.join would otherwise emit forward slashes).
+    expect(expandHome('~\\notes\\memory.jsonl')).toBe(
+      path.join(os.homedir(), 'notes\\memory.jsonl')
+    );
+  });
+
+  it('leaves a "~" not followed by a separator unchanged', () => {
+    expect(expandHome('~backup.jsonl')).toBe('~backup.jsonl');
+  });
+
+  it('leaves absolute paths unchanged', () => {
+    expect(expandHome('/var/data/memory.jsonl')).toBe('/var/data/memory.jsonl');
+  });
+
+  it('leaves relative paths unchanged', () => {
+    expect(expandHome(path.join('data', 'memory.jsonl'))).toBe(
+      path.join('data', 'memory.jsonl')
+    );
   });
 });
